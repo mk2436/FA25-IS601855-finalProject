@@ -40,7 +40,7 @@ from app.models.calculation import Calculation  # Database model for calculation
 from app.models.user import User  # Database model for users
 from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate  # API request/response schemas
 from app.schemas.token import TokenResponse  # API token schema
-from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate  # User schemas
+from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
 
 
@@ -592,6 +592,44 @@ def delete_profile_picture(
         db.refresh(current_user)
     
     return current_user
+
+
+@app.put("/users/password", status_code=status.HTTP_200_OK, tags=["users"])
+def update_password(
+    password_update: PasswordUpdate,
+    current_user = Depends(get_current_active_user_db),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the current authenticated user's password.
+    Requires current password for verification.
+    After successful update, user should be logged out for security.
+    """
+    # Verify current password
+    if not current_user.verify_password(password_update.current_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Hash and update the new password
+    try:
+        hashed_password = User.hash_password(password_update.new_password)
+        current_user.password = hashed_password
+        current_user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(current_user)
+        
+        return {
+            "message": "Password updated successfully. Please log in again with your new password.",
+            "logout_required": True
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update password: {str(e)}"
+        )
 
 
 # ------------------------------------------------------------------------------
