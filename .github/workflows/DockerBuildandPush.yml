@@ -100,8 +100,8 @@ jobs:
         with:
           push: true
           tags: |
-            mihirkadam1912/601_module14:latest
-            mihirkadam1912/601_module14:${{ github.sha }}
+            mihirkadam1912/is601-finalproject:latest
+            mihirkadam1912/is601-finalproject:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=mihirkadam1912/601_module14:cache
+          cache-from: type=registry,ref=mihirkadam1912/is601-finalproject:cache
           cache-to: type=inline,mode=max
