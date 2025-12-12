@@ -21,7 +21,7 @@ from uuid import UUID  # For type validation of UUIDs in path parameters
 from typing import List
 
 # FastAPI imports
-from fastapi import Body, FastAPI, Depends, HTTPException, status, Request, Form
+from fastapi import Body, FastAPI, Depends, HTTPException, status, Request, Form, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles  # For serving static files (CSS, JS)
@@ -30,14 +30,17 @@ from fastapi.templating import Jinja2Templates  # For HTML templates
 from sqlalchemy.orm import Session  # SQLAlchemy database session
 
 import uvicorn  # ASGI server for running FastAPI apps
+import os
+import shutil
+from pathlib import Path
 
 # Application imports
-from app.auth.dependencies import get_current_active_user  # Authentication dependency
+from app.auth.dependencies import get_current_active_user, get_current_active_user_db  # Authentication dependency
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
 from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate  # API request/response schemas
 from app.schemas.token import TokenResponse  # API token schema
-from app.schemas.user import UserCreate, UserResponse, UserLogin  # User schemas
+from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
 
 
@@ -161,6 +164,16 @@ def edit_calculation_page(request: Request, calc_id: str):
     """
     return templates.TemplateResponse("edit_calculation.html", {"request": request, "calc_id": calc_id})
 
+@app.get("/profile", response_class=HTMLResponse, tags=["web"])
+def profile_page(request: Request):
+    """
+    User profile settings page.
+    
+    Displays a form for users to update their profile information
+    and manage their profile picture.
+    """
+    return templates.TemplateResponse("profile.html", {"request": request})
+
 
 # ------------------------------------------------------------------------------
 # Health Endpoint
@@ -232,6 +245,7 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
+        profile_picture=user.profile_picture,
         is_active=user.is_active,
         is_verified=user.is_verified
     )
@@ -392,6 +406,192 @@ def delete_calculation(
     db.delete(calculation)
     db.commit()
     return None
+
+
+# ------------------------------------------------------------------------------
+# User Profile Endpoints
+# ------------------------------------------------------------------------------
+@app.get("/users/me", response_model=UserResponse, tags=["users"])
+def get_current_user_profile(
+    current_user_response = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current authenticated user's profile information.
+    Fetches the user from the database to get the latest profile information including profile_picture.
+    """
+    # Fetch the actual user from the database to get the latest data
+    user = db.query(User).filter(User.id == current_user_response.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
+
+
+@app.put("/users/me", response_model=UserResponse, tags=["users"])
+def update_current_user_profile(
+    user_update: UserUpdate,
+    current_user = Depends(get_current_active_user_db),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the current authenticated user's profile information.
+    """
+    # Check if email or username is being changed and if it's already taken
+    if user_update.email and user_update.email != current_user.email:
+        existing_user = db.query(User).filter(User.email == user_update.email).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+    
+    if user_update.username and user_update.username != current_user.username:
+        existing_user = db.query(User).filter(User.username == user_update.username).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already in use"
+            )
+    
+    # Update user fields
+    update_data = user_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+    
+    current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@app.post("/users/profile-picture", response_model=UserResponse, tags=["users"])
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_active_user_db),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a profile picture for the current authenticated user.
+    Accepts image files (JPEG, PNG, GIF, WebP) up to 5MB.
+    """
+    try:
+        # Validate file type
+        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+        
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No filename provided"
+            )
+        
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
+            )
+        
+        # Validate file size (5MB limit)
+        contents = await file.read()
+        if len(contents) > 5 * 1024 * 1024:  # 5MB
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size exceeds 5MB limit"
+            )
+        
+        # Create uploads directory if it doesn't exist
+        try:
+            upload_dir = Path("static/uploads/profile_pictures")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create upload directory: {str(e)}"
+            )
+        
+        # Generate unique filename using user ID
+        filename = f"user_{current_user.id}{file_ext}"
+        file_path = upload_dir / filename
+        
+        # Delete old profile picture if it exists
+        if current_user.profile_picture:
+            try:
+                old_file_path = Path("static") / current_user.profile_picture.lstrip("/")
+                if old_file_path.exists() and old_file_path.is_file():
+                    old_file_path.unlink()
+            except Exception:
+                pass  # Ignore errors when deleting old file
+        
+        # Save the new file
+        try:
+            with open(file_path, "wb") as buffer:
+                buffer.write(contents)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save file: {str(e)}"
+            )
+        
+        # Update user's profile_picture field
+        try:
+            profile_picture_path = f"/static/uploads/profile_pictures/{filename}"
+            current_user.profile_picture = profile_picture_path
+            current_user.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(current_user)
+        except Exception as e:
+            db.rollback()
+            # Try to delete the uploaded file if database update fails
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update user profile: {str(e)}"
+            )
+        
+        return current_user
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (they already have proper status codes)
+        raise
+    except Exception as e:
+        # Catch any other unexpected errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+@app.delete("/users/profile-picture", response_model=UserResponse, tags=["users"])
+def delete_profile_picture(
+    current_user = Depends(get_current_active_user_db),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete the current authenticated user's profile picture.
+    """
+    if current_user.profile_picture:
+        # Delete the file
+        file_path = Path("static") / current_user.profile_picture.lstrip("/")
+        if file_path.exists() and file_path.is_file():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass  # Ignore errors when deleting file
+        
+        # Clear the profile_picture field
+        current_user.profile_picture = None
+        current_user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(current_user)
+    
+    return current_user
 
 
 # ------------------------------------------------------------------------------

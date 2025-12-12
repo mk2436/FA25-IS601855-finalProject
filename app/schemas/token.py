@@ -48,6 +48,7 @@ class TokenResponse(BaseModel):
     email: str = Field(..., description="User's email address")
     first_name: str = Field(..., description="User's first name")
     last_name: str = Field(..., description="User's last name")
+    profile_picture: str | None = Field(None, description="User's profile picture path")
     is_active: bool = Field(..., description="User's active status")
     is_verified: bool = Field(..., description="User's verification status")
 

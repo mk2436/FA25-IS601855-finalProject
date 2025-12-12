@@ -58,9 +58,30 @@
           </a>
         </div>
   
-        <!-- Right side: user greeting & logout -->
+        <!-- Right side: user greeting, profile picture & logout -->
         <div class="flex items-center space-x-4">
-          <span id="layoutUserWelcome" class="text-sm font-medium text-white hidden md:block"></span>
+          <a 
+            href="/profile" 
+            id="profileLink"
+            class="hidden md:block"
+            title="View Profile"
+          >
+            <img 
+              id="layoutProfilePicture" 
+              src="/static/uploads/profile_pictures/default-avatar.png"
+              alt="Profile"
+              class="w-10 h-10 rounded-full object-cover border-2 border-white shadow-md hover:border-blue-300 transition-all cursor-pointer"
+              onerror="this.onerror=null; this.src='/static/uploads/profile_pictures/default-avatar.png'"
+            />
+          </a>
+          <a 
+            href="/profile" 
+            id="profileTextLink"
+            class="hidden md:flex items-center text-sm font-medium text-white hover:text-blue-200 transition-colors"
+          >
+            <span id="layoutUserWelcome"></span>
+          </a>
+          <span id="layoutUserWelcomeMobile" class="text-sm font-medium text-white md:hidden"></span>
           <button
             id="layoutLogoutBtn"
             class="px-4 py-2 rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors duration-200 
@@ -122,15 +143,99 @@
       }
     }
 
-    // Set user welcome message if logged in
+    // Set user welcome message and profile picture if logged in
     const welcomeElement = document.getElementById('layoutUserWelcome');
-    if (welcomeElement) {
-      const username = localStorage.getItem('username');
-      if (username) {
-        welcomeElement.textContent = `Welcome, ${username}!`;
-        welcomeElement.classList.remove('hidden');
+    const profilePictureElement = document.getElementById('layoutProfilePicture');
+    
+    if (welcomeElement || profilePictureElement) {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        // Load user profile to get profile picture
+        fetch('/users/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(response => {
+          if (response.ok) {
+            return response.json();
+          }
+          throw new Error('Failed to load user profile');
+        })
+        .then(user => {
+          const username = user.username || localStorage.getItem('username') || "User";
+          
+          if (welcomeElement) {
+            welcomeElement.textContent = `Welcome, ${username}!`;
+          }
+          
+          // Update mobile welcome message
+          const mobileWelcome = document.getElementById('layoutUserWelcomeMobile');
+          if (mobileWelcome) {
+            mobileWelcome.textContent = `Welcome, ${username}!`;
+          }
+          
+          if (profilePictureElement) {
+            console.log('User profile_picture from API:', user.profile_picture);
+            if (user.profile_picture) {
+              // Add cache busting to force reload and set error handler
+              profilePictureElement.onerror = function() {
+                console.error('Failed to load profile picture:', user.profile_picture);
+                this.src = '/static/uploads/profile_pictures/default-avatar.png';
+              };
+              profilePictureElement.src = user.profile_picture + '?t=' + new Date().getTime();
+              localStorage.setItem('profile_picture', user.profile_picture);
+            } else {
+              profilePictureElement.src = '/static/uploads/profile_pictures/default-avatar.png';
+              localStorage.removeItem('profile_picture');
+            }
+          }
+          
+          // Show profile picture link
+          const profileLink = document.getElementById('profileLink');
+          if (profileLink) {
+            profileLink.classList.remove('hidden');
+          }
+          
+          // Show profile text link
+          const profileTextLink = document.getElementById('profileTextLink');
+          if (profileTextLink) {
+            profileTextLink.classList.remove('hidden');
+          }
+        })
+        .catch(err => {
+          console.error('Error loading user profile:', err);
+          // Fallback to username and profile picture from localStorage
+          const username = localStorage.getItem('username');
+          
+          if (welcomeElement && username) {
+            welcomeElement.textContent = `Welcome, ${username}!`;
+          }
+          
+          const mobileWelcome = document.getElementById('layoutUserWelcomeMobile');
+          if (mobileWelcome && username) {
+            mobileWelcome.textContent = `Welcome, ${username}!`;
+          }
+          
+          if (profilePictureElement) {
+            const storedProfilePicture = localStorage.getItem('profile_picture');
+            if (storedProfilePicture) {
+              profilePictureElement.src = storedProfilePicture;
+            } else {
+              profilePictureElement.src = '/static/uploads/profile_pictures/default-avatar.png';
+            }
+          }
+          
+          // Show profile links
+          const profileLink = document.getElementById('profileLink');
+          const profileTextLink = document.getElementById('profileTextLink');
+          if (profileLink) profileLink.classList.remove('hidden');
+          if (profileTextLink) profileTextLink.classList.remove('hidden');
+        });
       } else {
-        welcomeElement.classList.add('hidden');
+        // Hide profile links when not logged in
+        const profileLink = document.getElementById('profileLink');
+        const profileTextLink = document.getElementById('profileTextLink');
+        if (profileLink) profileLink.classList.add('hidden');
+        if (profileTextLink) profileTextLink.classList.add('hidden');
       }
     }
 

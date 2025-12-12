@@ -77,6 +77,7 @@ class User(Base):
     # Personal information
     first_name = Column(String(50), nullable=False)
     last_name = Column(String(50), nullable=False)
+    profile_picture = Column(String, nullable=True)  # Path to profile picture file
     
     # Status flags for account management
     is_active = Column(Boolean, 

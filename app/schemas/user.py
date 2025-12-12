@@ -90,6 +90,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     first_name: str
     last_name: str
+    profile_picture: Optional[str] = None
     is_active: bool
     is_verified: bool
     created_at: datetime
@@ -150,6 +151,11 @@ class UserUpdate(BaseModel):
         max_length=50,
         example="johndoe",
         description="User's unique username"
+    )
+    profile_picture: Optional[str] = Field(
+        None,
+        example="/static/uploads/profile_pictures/user_123.jpg",
+        description="Path to user's profile picture"
     )
 
     model_config = ConfigDict(from_attributes=True)
