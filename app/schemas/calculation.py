@@ -36,6 +36,8 @@ class CalculationType(str, Enum):
     SUBTRACTION = "subtraction"
     MULTIPLICATION = "multiplication"
     DIVISION = "division"
+    EXPONENTIATION = "exponentiation"
+    MODULUS = "modulus"
 
 class CalculationBase(BaseModel):
     """
@@ -49,7 +51,7 @@ class CalculationBase(BaseModel):
     """
     type: CalculationType = Field(
         ...,  # The ... means this field is required
-        description="Type of calculation (addition, subtraction, multiplication, division)",
+        description="Type of calculation (addition, subtraction, multiplication, division, exponentiation, modulus)",
         example="addition"
     )
     inputs: List[float] = Field(
@@ -130,6 +132,10 @@ class CalculationBase(BaseModel):
             # Prevent division by zero (skip the first value as numerator)
             if any(x == 0 for x in self.inputs[1:]):
                 raise ValueError("Cannot divide by zero")
+        if self.type == CalculationType.MODULUS:
+            # Prevent modulus by zero (skip the first value)
+            if any(x == 0 for x in self.inputs[1:]):
+                raise ValueError("Cannot take modulus by zero")
         return self
 
     model_config = ConfigDict(

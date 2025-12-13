@@ -178,6 +178,8 @@ class AbstractCalculation:
             'subtraction': Subtraction,
             'multiplication': Multiplication,
             'division': Division,
+            'exponentiation': Exponentiation,
+            'modulus': Modulus,
         }
         calculation_class = calculation_classes.get(calculation_type.lower())
         if not calculation_class:
@@ -353,4 +355,79 @@ class Division(Calculation):
             if value == 0:
                 raise ValueError("Cannot divide by zero.")
             result /= value
+        return result
+
+class Exponentiation(Calculation):
+    """
+    Exponentiation calculation subclass.
+    
+    Implements sequential exponentiation starting from the first number.
+    Examples:
+        [2, 3] -> 2^3 = 8
+        [2, 3, 2] -> (2^3)^2 = 8^2 = 64
+        [5, 2] -> 5^2 = 25
+        
+    Note: Exponentiation is right-associative, so [2, 3, 2] = (2^3)^2 = 64
+    """
+    __mapper_args__ = {"polymorphic_identity": "exponentiation"}
+
+    def get_result(self) -> float:
+        """
+        Calculate the result of raising the first value to the power of subsequent values.
+        
+        Takes the first number and raises it to the power of all remaining numbers sequentially.
+        For [a, b, c], calculates ((a^b)^c).
+        
+        Returns:
+            float: The result of the exponentiation sequence
+            
+        Raises:
+            ValueError: If inputs are not a list or if fewer than 2 numbers provided
+        """
+        if not isinstance(self.inputs, list):
+            raise ValueError("Inputs must be a list of numbers.")
+        if len(self.inputs) < 2:
+            raise ValueError("Inputs must be a list with at least two numbers.")
+        result = self.inputs[0]
+        for value in self.inputs[1:]:
+            result = result ** value
+        return result
+
+class Modulus(Calculation):
+    """
+    Modulus calculation subclass.
+    
+    Implements sequential modulus operation starting from the first number.
+    Examples:
+        [10, 3] -> 10 % 3 = 1
+        [100, 7, 3] -> (100 % 7) % 3 = 2 % 3 = 2
+        
+    Special case handling:
+        - Modulus by zero raises a ValueError
+    """
+    __mapper_args__ = {"polymorphic_identity": "modulus"}
+
+    def get_result(self) -> float:
+        """
+        Calculate the result of applying modulus operation sequentially.
+        
+        Takes the first number and applies modulus with all remaining numbers sequentially.
+        For [a, b, c], calculates ((a % b) % c).
+        
+        Returns:
+            float: The result of the modulus sequence
+            
+        Raises:
+            ValueError: If inputs are not a list, if fewer than 2 numbers provided,
+                        or if attempting to take modulus by zero
+        """
+        if not isinstance(self.inputs, list):
+            raise ValueError("Inputs must be a list of numbers.")
+        if len(self.inputs) < 2:
+            raise ValueError("Inputs must be a list with at least two numbers.")
+        result = self.inputs[0]
+        for value in self.inputs[1:]:
+            if value == 0:
+                raise ValueError("Cannot take modulus by zero.")
+            result = result % value
         return result
