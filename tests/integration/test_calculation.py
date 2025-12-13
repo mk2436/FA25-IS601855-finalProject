@@ -7,6 +7,8 @@ from app.models.calculation import (
     Subtraction,
     Multiplication,
     Division,
+    Exponentiation,
+    Modulus,
 )
 
 # Helper function to create a dummy user_id for testing.
@@ -150,3 +152,192 @@ def test_invalid_inputs_for_division():
     division = Division(user_id=dummy_user_id(), inputs=[10])
     with pytest.raises(ValueError, match="Inputs must be a list with at least two numbers."):
         division.get_result()
+
+
+# ---------------------------------------------
+# Tests for Exponentiation Operation
+# ---------------------------------------------
+
+def test_exponentiation_get_result():
+    """
+    Test that Exponentiation.get_result returns the correct result.
+    """
+    inputs = [2, 3]
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 2^3 = 8
+    result = exponentiation.get_result()
+    assert result == 8, f"Expected 8, got {result}"
+
+def test_exponentiation_sequential():
+    """
+    Test that Exponentiation.get_result handles sequential exponentiation correctly.
+    """
+    inputs = [2, 3, 2]
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: (2^3)^2 = 8^2 = 64
+    result = exponentiation.get_result()
+    assert result == 64, f"Expected 64, got {result}"
+
+def test_exponentiation_with_negative_base():
+    """
+    Test that Exponentiation.get_result handles negative base correctly.
+    """
+    inputs = [-2, 3]
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: (-2)^3 = -8
+    result = exponentiation.get_result()
+    assert result == -8, f"Expected -8, got {result}"
+
+def test_exponentiation_with_fractional_exponent():
+    """
+    Test that Exponentiation.get_result handles fractional exponents correctly.
+    """
+    inputs = [4, 0.5]
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 4^0.5 = 2.0 (square root)
+    result = exponentiation.get_result()
+    assert abs(result - 2.0) < 0.0001, f"Expected approximately 2.0, got {result}"
+
+def test_exponentiation_with_zero_exponent():
+    """
+    Test that Exponentiation.get_result handles zero exponent correctly.
+    """
+    inputs = [5, 0]
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 5^0 = 1
+    result = exponentiation.get_result()
+    assert result == 1, f"Expected 1, got {result}"
+
+def test_exponentiation_factory():
+    """
+    Test the Calculation.create factory method for exponentiation.
+    """
+    inputs = [2, 4]
+    calc = Calculation.create(
+        calculation_type='exponentiation',
+        user_id=dummy_user_id(),
+        inputs=inputs,
+    )
+    # Expected: 2^4 = 16
+    assert isinstance(calc, Exponentiation), "Factory did not return an Exponentiation instance."
+    assert calc.get_result() == 16, "Incorrect exponentiation result."
+
+def test_invalid_inputs_for_exponentiation():
+    """
+    Test that providing fewer than two numbers to Exponentiation.get_result raises a ValueError.
+    """
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs=[10])
+    with pytest.raises(ValueError, match="Inputs must be a list with at least two numbers."):
+        exponentiation.get_result()
+
+def test_exponentiation_non_list_inputs():
+    """
+    Test that providing non-list inputs to Exponentiation.get_result raises a ValueError.
+    """
+    exponentiation = Exponentiation(user_id=dummy_user_id(), inputs="not-a-list")
+    with pytest.raises(ValueError, match="Inputs must be a list of numbers."):
+        exponentiation.get_result()
+
+
+# ---------------------------------------------
+# Tests for Modulus Operation
+# ---------------------------------------------
+
+def test_modulus_get_result():
+    """
+    Test that Modulus.get_result returns the correct result.
+    """
+    inputs = [10, 3]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 10 % 3 = 1
+    result = modulus.get_result()
+    assert result == 1, f"Expected 1, got {result}"
+
+def test_modulus_sequential():
+    """
+    Test that Modulus.get_result handles sequential modulus operations correctly.
+    """
+    inputs = [100, 7, 3]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: (100 % 7) % 3 = 2 % 3 = 2
+    result = modulus.get_result()
+    assert result == 2, f"Expected 2, got {result}"
+
+def test_modulus_with_negative_dividend():
+    """
+    Test that Modulus.get_result handles negative dividend correctly.
+    """
+    inputs = [-10, 3]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: -10 % 3 = 2 (Python's modulus behavior)
+    result = modulus.get_result()
+    assert result == 2, f"Expected 2, got {result}"
+
+def test_modulus_with_negative_divisor():
+    """
+    Test that Modulus.get_result handles negative divisor correctly.
+    """
+    inputs = [10, -3]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 10 % -3 = -2 (Python's modulus behavior)
+    result = modulus.get_result()
+    assert result == -2, f"Expected -2, got {result}"
+
+def test_modulus_with_float():
+    """
+    Test that Modulus.get_result handles floating point numbers correctly.
+    """
+    inputs = [10.5, 3.2]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 10.5 % 3.2 = 1.0 (approximately)
+    result = modulus.get_result()
+    assert abs(result - 0.9) < 1e-9, f"Expected approximately 0.9, got {result}"
+
+
+def test_modulus_by_zero():
+    """
+    Test that Modulus.get_result raises ValueError when taking modulus by zero.
+    """
+    inputs = [10, 0]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    with pytest.raises(ValueError, match="Cannot take modulus by zero."):
+        modulus.get_result()
+
+def test_modulus_sequential_with_zero():
+    """
+    Test that Modulus.get_result raises ValueError when any divisor in sequence is zero.
+    """
+    inputs = [100, 5, 0]
+    modulus = Modulus(user_id=dummy_user_id(), inputs=inputs)
+    with pytest.raises(ValueError, match="Cannot take modulus by zero."):
+        modulus.get_result()
+
+def test_modulus_factory():
+    """
+    Test the Calculation.create factory method for modulus.
+    """
+    inputs = [17, 5]
+    calc = Calculation.create(
+        calculation_type='modulus',
+        user_id=dummy_user_id(),
+        inputs=inputs,
+    )
+    # Expected: 17 % 5 = 2
+    assert isinstance(calc, Modulus), "Factory did not return a Modulus instance."
+    assert calc.get_result() == 2, "Incorrect modulus result."
+
+def test_invalid_inputs_for_modulus():
+    """
+    Test that providing fewer than two numbers to Modulus.get_result raises a ValueError.
+    """
+    modulus = Modulus(user_id=dummy_user_id(), inputs=[10])
+    with pytest.raises(ValueError, match="Inputs must be a list with at least two numbers."):
+        modulus.get_result()
+
+def test_modulus_non_list_inputs():
+    """
+    Test that providing non-list inputs to Modulus.get_result raises a ValueError.
+    """
+    modulus = Modulus(user_id=dummy_user_id(), inputs="not-a-list")
+    with pytest.raises(ValueError, match="Inputs must be a list of numbers."):
+        modulus.get_result()

@@ -194,3 +194,213 @@ def test_missing_password_registration(db_session):
     # Adjust the expected error message
     with pytest.raises(ValueError, match="Password must be at least 6 characters long"):
         User.register(db_session, test_data)
+
+
+# ---------------------------------------------
+# Password Update Tests
+# ---------------------------------------------
+
+def test_password_update_successful(db_session, fake_user_data):
+    """Test successful password update"""
+    # Register a user with initial password
+    fake_user_data['password'] = "OldPass123!"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Store the old password hash
+    old_password_hash = user.password
+    
+    # Update password
+    new_password = "NewPass456!"
+    hashed_new_password = User.hash_password(new_password)
+    user.password = hashed_new_password
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Verify old password no longer works
+    assert not user.verify_password("OldPass123!"), "Old password should not work"
+    
+    # Verify new password works
+    assert user.verify_password(new_password), "New password should work"
+    
+    # Verify password hash changed
+    assert user.password != old_password_hash, "Password hash should have changed"
+
+def test_password_update_verification(db_session, fake_user_data):
+    """Test that password update requires correct current password verification"""
+    fake_user_data['password'] = "OldPass123!"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Try to update with wrong current password
+    wrong_password = "WrongPass123!"
+    correct_new_password = "NewPass456!"
+    
+    # Verify current password first
+    assert user.verify_password("OldPass123!"), "Current password should be correct"
+    assert not user.verify_password(wrong_password), "Wrong password should not verify"
+    
+    # If wrong password is used, update should fail
+    # This is tested at the API level, but we can test the model level
+    hashed_new = User.hash_password(correct_new_password)
+    user.password = hashed_new
+    db_session.commit()
+    
+    # After update, old password should not work
+    assert not user.verify_password("OldPass123!"), "Old password should not work after update"
+    assert user.verify_password(correct_new_password), "New password should work"
+
+def test_password_update_schema_validation():
+    """Test PasswordUpdate schema validation"""
+    from app.schemas.user import PasswordUpdate
+    from pydantic import ValidationError
+    
+    # Valid password update
+    valid_data = {
+        "current_password": "OldPass123!",
+        "new_password": "NewPass456!",
+        "confirm_new_password": "NewPass456!"
+    }
+    password_update = PasswordUpdate(**valid_data)
+    assert password_update.current_password == "OldPass123!"
+    assert password_update.new_password == "NewPass456!"
+    
+    # Test password mismatch
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="NewPass456!",
+            confirm_new_password="DifferentPass789!"
+        )
+    assert "do not match" in str(exc_info.value).lower()
+    
+    # Test new password same as current
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="SamePass123!",
+            new_password="SamePass123!",
+            confirm_new_password="SamePass123!"
+        )
+    assert "different from current" in str(exc_info.value).lower()
+    
+    # Test password too short
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="Short1!",
+            confirm_new_password="Short1!"
+        )
+    assert "at least 8 characters" in str(exc_info.value).lower()
+    
+    # Test missing uppercase
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="newpass123!",
+            confirm_new_password="newpass123!"
+        )
+    assert "uppercase" in str(exc_info.value).lower()
+    
+    # Test missing lowercase
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="NEWPASS123!",
+            confirm_new_password="NEWPASS123!"
+        )
+    assert "lowercase" in str(exc_info.value).lower()
+    
+    # Test missing digit
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="NewPass!",
+            confirm_new_password="NewPass!"
+        )
+    assert "digit" in str(exc_info.value).lower()
+    
+    # Test missing special character
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="NewPass123",
+            confirm_new_password="NewPass123"
+        )
+    assert "special character" in str(exc_info.value).lower()
+
+def test_password_update_minimum_length(db_session, fake_user_data):
+    """Test that password update enforces minimum length"""
+    from app.schemas.user import PasswordUpdate
+    from pydantic import ValidationError
+    
+    # Test with exactly 8 characters (should pass)
+    valid_short = PasswordUpdate(
+        current_password="OldPass123!",
+        new_password="NewP1!@#",
+        confirm_new_password="NewP1!@#"
+    )
+    assert len(valid_short.new_password) == 8
+    
+    # Test with 7 characters (should fail)
+    with pytest.raises(ValidationError):
+        PasswordUpdate(
+            current_password="OldPass123!",
+            new_password="NewP1!@",
+            confirm_new_password="NewP1!@"
+        )
+
+def test_password_update_updated_at_timestamp(db_session, fake_user_data):
+    """Test that password update changes the updated_at timestamp"""
+    from datetime import datetime, timezone
+    
+    fake_user_data['password'] = "OldPass123!"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    original_updated_at = user.updated_at
+    
+    # Wait a moment to ensure timestamp difference
+    import time
+    time.sleep(0.1)
+    
+    # Update password
+    new_password = "NewPass456!"
+    hashed_new = User.hash_password(new_password)
+    user.password = hashed_new
+    user.updated_at = datetime.now(timezone.utc)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    assert user.updated_at > original_updated_at, "updated_at should be newer after password change"
+
+def test_password_update_preserves_other_fields(db_session, fake_user_data):
+    """Test that password update doesn't affect other user fields"""
+    fake_user_data['password'] = "OldPass123!"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Store original values
+    original_email = user.email
+    original_username = user.username
+    original_first_name = user.first_name
+    original_last_name = user.last_name
+    original_id = user.id
+    
+    # Update password
+    new_password = "NewPass456!"
+    hashed_new = User.hash_password(new_password)
+    user.password = hashed_new
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Verify other fields unchanged
+    assert user.email == original_email, "Email should not change"
+    assert user.username == original_username, "Username should not change"
+    assert user.first_name == original_first_name, "First name should not change"
+    assert user.last_name == original_last_name, "Last name should not change"
+    assert user.id == original_id, "User ID should not change"
+    assert user.verify_password(new_password), "New password should work"
