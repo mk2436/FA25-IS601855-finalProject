@@ -14,7 +14,7 @@ clear error messages when validation fails.
 
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 from datetime import datetime
 
@@ -274,6 +274,76 @@ class CalculationResponse(CalculationBase):
                 "result": 15.5,
                 "created_at": "2025-01-01T00:00:00",
                 "updated_at": "2025-01-01T00:00:00"
+            }
+        }
+    )
+
+class CalculationStats(BaseModel):
+    """
+    Schema for calculation statistics and usage metrics.
+    
+    Provides aggregated statistics about a user's calculation history.
+    """
+    total_calculations: int = Field(
+        ...,
+        description="Total number of calculations performed",
+        example=42
+    )
+    average_operands: float = Field(
+        ...,
+        description="Average number of operands per calculation",
+        example=2.5
+    )
+    most_used_operation: Optional[str] = Field(
+        None,
+        description="Most frequently used operation type",
+        example="addition"
+    )
+    operations_by_type: Dict[str, int] = Field(
+        ...,
+        description="Count of calculations grouped by operation type",
+        example={"addition": 15, "subtraction": 10, "multiplication": 8, "division": 5, "exponentiation": 3, "modulus": 1}
+    )
+    average_result: Optional[float] = Field(
+        None,
+        description="Average result value across all calculations",
+        example=125.5
+    )
+    first_calculation_date: Optional[datetime] = Field(
+        None,
+        description="Date of the first calculation",
+        example="2025-01-01T00:00:00"
+    )
+    last_calculation_date: Optional[datetime] = Field(
+        None,
+        description="Date of the most recent calculation",
+        example="2025-01-15T12:30:00"
+    )
+    total_operands: int = Field(
+        ...,
+        description="Total number of operands across all calculations",
+        example=105
+    )
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "total_calculations": 42,
+                "average_operands": 2.5,
+                "most_used_operation": "addition",
+                "operations_by_type": {
+                    "addition": 15,
+                    "subtraction": 10,
+                    "multiplication": 8,
+                    "division": 5,
+                    "exponentiation": 3,
+                    "modulus": 1
+                },
+                "average_result": 125.5,
+                "first_calculation_date": "2025-01-01T00:00:00",
+                "last_calculation_date": "2025-01-15T12:30:00",
+                "total_operands": 105
             }
         }
     )

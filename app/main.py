@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles  # For serving static files (CSS, JS
 from fastapi.templating import Jinja2Templates  # For HTML templates
 
 from sqlalchemy.orm import Session  # SQLAlchemy database session
+from sqlalchemy import func  # For aggregate functions
 
 import uvicorn  # ASGI server for running FastAPI apps
 import os
@@ -38,7 +39,7 @@ from pathlib import Path
 from app.auth.dependencies import get_current_active_user, get_current_active_user_db  # Authentication dependency
 from app.models.calculation import Calculation  # Database model for calculations
 from app.models.user import User  # Database model for users
-from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate  # API request/response schemas
+from app.schemas.calculation import CalculationBase, CalculationResponse, CalculationUpdate, CalculationStats  # API request/response schemas
 from app.schemas.token import TokenResponse  # API token schema
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, PasswordUpdate  # User schemas
 from app.database import Base, get_db, engine  # Database connection
@@ -321,6 +322,93 @@ def list_calculations(
     """
     calculations = db.query(Calculation).filter(Calculation.user_id == current_user.id).all()
     return calculations
+
+
+# Statistics Endpoint (must come before /calculations/{calc_id} to avoid route conflicts)
+@app.get("/calculations/stats", response_model=CalculationStats, tags=["calculations"])
+def get_calculation_stats(
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get usage statistics and summaries for the current authenticated user's calculations.
+    Returns metrics such as total calculations, average operands, most used operation, etc.
+    """
+    try:
+        # Get all calculations for the user
+        calculations = db.query(Calculation).filter(Calculation.user_id == current_user.id).all()
+        
+        if not calculations:
+            # Return empty stats if no calculations exist
+            return CalculationStats(
+                total_calculations=0,
+                average_operands=0.0,
+                most_used_operation=None,
+                operations_by_type={},
+                average_result=None,
+                first_calculation_date=None,
+                last_calculation_date=None,
+                total_operands=0
+            )
+        
+        # Calculate statistics
+        total_calculations = len(calculations)
+        
+        # Count operands and operations by type
+        total_operands = 0
+        operations_by_type = {}
+        results = []
+        
+        for calc in calculations:
+            # Count operands
+            if isinstance(calc.inputs, list):
+                total_operands += len(calc.inputs)
+            
+            # Count by operation type
+            op_type = calc.type.lower()
+            operations_by_type[op_type] = operations_by_type.get(op_type, 0) + 1
+            
+            # Collect results for average
+            if calc.result is not None:
+                results.append(calc.result)
+        
+        # Calculate average operands
+        average_operands = total_operands / total_calculations if total_calculations > 0 else 0.0
+        
+        # Find most used operation
+        most_used_operation = max(operations_by_type.items(), key=lambda x: x[1])[0] if operations_by_type else None
+        
+        # Calculate average result
+        average_result = sum(results) / len(results) if results else None
+        
+        # Find first and last calculation dates
+        dates = [calc.created_at for calc in calculations if calc.created_at]
+        first_calculation_date = min(dates) if dates else None
+        last_calculation_date = max(dates) if dates else None
+        
+        # Round values properly
+        avg_operands_rounded = round(float(average_operands), 2)
+        avg_result_rounded = round(float(average_result), 2) if average_result is not None else None
+        
+        return CalculationStats(
+            total_calculations=total_calculations,
+            average_operands=avg_operands_rounded,
+            most_used_operation=most_used_operation,
+            operations_by_type=operations_by_type,
+            average_result=avg_result_rounded,
+            first_calculation_date=first_calculation_date,
+            last_calculation_date=last_calculation_date,
+            total_operands=total_operands
+        )
+    except Exception as e:
+        # Log the error and return a proper error response
+        import traceback
+        print(f"Error in get_calculation_stats: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to calculate statistics: {str(e)}"
+        )
 
 
 # Read / Retrieve a Specific Calculation by ID
