@@ -296,6 +296,195 @@ def test_model_addition():
     result = calc.get_result()
     assert result == 6, f"Addition result incorrect: expected 6, got {result}"
 
+def test_password_update_successful(base_url: str):
+    """Test successful password update via API"""
+    user_data = {
+        "first_name": "Password",
+        "last_name": "Tester",
+        "email": f"password.tester{uuid4()}@example.com",
+        "username": f"pt_{uuid4().hex[:8]}",
+        "password": "OldPass123!",
+        "confirm_password": "OldPass123!"
+    }
+    
+    # Register and login
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Update password
+    password_update_url = f"{base_url}/users/password"
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "NewPass456!",
+        "confirm_new_password": "NewPass456!"
+    }
+    
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 200, f"Password update failed: {update_response.text}"
+    
+    update_data = update_response.json()
+    assert "message" in update_data, "Response should contain message"
+    assert "logout_required" in update_data, "Response should indicate logout required"
+    assert update_data["logout_required"] is True, "logout_required should be True"
+    
+    # Verify old password no longer works by attempting login
+    login_url = f"{base_url}/auth/login"
+    old_login_payload = {
+        "username": user_data["username"],
+        "password": "OldPass123!"
+    }
+    old_login_response = requests.post(login_url, json=old_login_payload)
+    assert old_login_response.status_code == 401, "Old password should not work after update"
+    
+    # Verify new password works
+    new_login_payload = {
+        "username": user_data["username"],
+        "password": "NewPass456!"
+    }
+    new_login_response = requests.post(login_url, json=new_login_payload)
+    assert new_login_response.status_code == 200, "New password should work after update"
+    new_token_data = new_login_response.json()
+    assert "access_token" in new_token_data, "Should receive access token with new password"
+
+def test_password_update_incorrect_current_password(base_url: str):
+    """Test password update fails with incorrect current password"""
+    user_data = {
+        "first_name": "Password",
+        "last_name": "Tester",
+        "email": f"password.tester2{uuid4()}@example.com",
+        "username": f"pt_{uuid4().hex[:8]}",
+        "password": "OldPass123!",
+        "confirm_password": "OldPass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    password_update_url = f"{base_url}/users/password"
+    password_update_payload = {
+        "current_password": "WrongPass123!",  # Incorrect current password
+        "new_password": "NewPass456!",
+        "confirm_new_password": "NewPass456!"
+    }
+    
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 400, "Should return 400 for incorrect current password"
+    
+    error_data = update_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+    assert "incorrect" in error_data["detail"].lower(), "Error should mention incorrect password"
+
+def test_password_update_password_mismatch(base_url: str):
+    """Test password update fails when new password and confirmation don't match"""
+    user_data = {
+        "first_name": "Password",
+        "last_name": "Tester",
+        "email": f"password.tester3{uuid4()}@example.com",
+        "username": f"pt_{uuid4().hex[:8]}",
+        "password": "OldPass123!",
+        "confirm_password": "OldPass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    password_update_url = f"{base_url}/users/password"
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "NewPass456!",
+        "confirm_new_password": "DifferentPass789!"  # Mismatch
+    }
+    
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 422, "Should return 422 for validation error"
+    
+    error_data = update_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+
+def test_password_update_same_as_current(base_url: str):
+    """Test password update fails when new password is same as current"""
+    user_data = {
+        "first_name": "Password",
+        "last_name": "Tester",
+        "email": f"password.tester4{uuid4()}@example.com",
+        "username": f"pt_{uuid4().hex[:8]}",
+        "password": "OldPass123!",
+        "confirm_password": "OldPass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    password_update_url = f"{base_url}/users/password"
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "OldPass123!",  # Same as current
+        "confirm_new_password": "OldPass123!"
+    }
+    
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 422, "Should return 422 for validation error"
+    
+    error_data = update_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+
+def test_password_update_weak_password(base_url: str):
+    """Test password update fails with weak password (missing requirements)"""
+    user_data = {
+        "first_name": "Password",
+        "last_name": "Tester",
+        "email": f"password.tester5{uuid4()}@example.com",
+        "username": f"pt_{uuid4().hex[:8]}",
+        "password": "OldPass123!",
+        "confirm_password": "OldPass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    password_update_url = f"{base_url}/users/password"
+    
+    # Test password without uppercase
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "newpass123!",
+        "confirm_new_password": "newpass123!"
+    }
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 422, "Should return 422 for weak password"
+    
+    # Test password without special character
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "NewPass123",
+        "confirm_new_password": "NewPass123"
+    }
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=headers)
+    assert update_response.status_code == 422, "Should return 422 for password without special character"
+
+def test_password_update_unauthorized(base_url: str):
+    """Test password update fails without authentication"""
+    password_update_url = f"{base_url}/users/password"
+    password_update_payload = {
+        "current_password": "OldPass123!",
+        "new_password": "NewPass456!",
+        "confirm_new_password": "NewPass456!"
+    }
+    
+    # Try without authorization header
+    update_response = requests.put(password_update_url, json=password_update_payload)
+    assert update_response.status_code == 401, "Should return 401 without authentication"
+    
+    # Try with invalid token
+    invalid_headers = {"Authorization": "Bearer invalid_token_here"}
+    update_response = requests.put(password_update_url, json=password_update_payload, headers=invalid_headers)
+    assert update_response.status_code == 401, "Should return 401 with invalid token"
+
 def test_model_subtraction():
     dummy_user_id = uuid4()
     calc = Calculation.create("subtraction", dummy_user_id, [10, 3, 2])
