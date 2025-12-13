@@ -404,3 +404,128 @@ def test_password_update_preserves_other_fields(db_session, fake_user_data):
     assert user.last_name == original_last_name, "Last name should not change"
     assert user.id == original_id, "User ID should not change"
     assert user.verify_password(new_password), "New password should work"
+
+
+# ---------------------------------------------
+# Profile Picture Update Tests
+# ---------------------------------------------
+
+def test_user_profile_picture_field_exists(db_session, fake_user_data):
+    """Test that User model has profile_picture field"""
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Verify profile_picture field exists and defaults to None
+    assert hasattr(user, 'profile_picture'), "User should have profile_picture attribute"
+    assert user.profile_picture is None, "New user should have no profile picture initially"
+
+def test_user_profile_picture_assignment(db_session, fake_user_data):
+    """Test assigning and retrieving profile picture path"""
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Assign profile picture path
+    test_path = "/static/uploads/profile_pictures/user_123.png"
+    user.profile_picture = test_path
+    db_session.commit()
+    db_session.refresh(user)
+    
+    assert user.profile_picture == test_path, "Profile picture path should be stored correctly"
+
+def test_user_profile_picture_update_timestamp(db_session, fake_user_data):
+    """Test that profile picture update changes updated_at timestamp"""
+    from datetime import datetime, timezone
+    
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    original_updated_at = user.updated_at
+    
+    # Wait a moment to ensure timestamp difference
+    import time
+    time.sleep(0.1)
+    
+    # Update profile picture
+    user.profile_picture = "/static/uploads/profile_pictures/test.png"
+    user.updated_at = datetime.now(timezone.utc)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    assert user.updated_at > original_updated_at, "updated_at should be newer after profile picture update"
+
+def test_user_profile_picture_clear(db_session, fake_user_data):
+    """Test clearing profile picture (setting to None)"""
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Set profile picture
+    user.profile_picture = "/static/uploads/profile_pictures/test.png"
+    db_session.commit()
+    db_session.refresh(user)
+    assert user.profile_picture is not None, "Profile picture should be set"
+    
+    # Clear profile picture
+    user.profile_picture = None
+    db_session.commit()
+    db_session.refresh(user)
+    assert user.profile_picture is None, "Profile picture should be cleared"
+
+def test_user_profile_picture_preserves_other_fields(db_session, fake_user_data):
+    """Test that profile picture update doesn't affect other user fields"""
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Store original values
+    original_email = user.email
+    original_username = user.username
+    original_first_name = user.first_name
+    original_last_name = user.last_name
+    original_id = user.id
+    original_password_hash = user.password
+    
+    # Update profile picture
+    user.profile_picture = "/static/uploads/profile_pictures/new_pic.jpg"
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Verify other fields unchanged
+    assert user.email == original_email, "Email should not change"
+    assert user.username == original_username, "Username should not change"
+    assert user.first_name == original_first_name, "First name should not change"
+    assert user.last_name == original_last_name, "Last name should not change"
+    assert user.id == original_id, "User ID should not change"
+    assert user.password == original_password_hash, "Password should not change"
+    assert user.profile_picture == "/static/uploads/profile_pictures/new_pic.jpg", \
+        "Profile picture should be updated"
+
+def test_user_profile_picture_replace_existing(db_session, fake_user_data):
+    """Test replacing an existing profile picture"""
+    fake_user_data['password'] = "TestPass123"
+    user = User.register(db_session, fake_user_data)
+    db_session.commit()
+    db_session.refresh(user)
+    
+    # Set initial profile picture
+    first_picture = "/static/uploads/profile_pictures/first.png"
+    user.profile_picture = first_picture
+    db_session.commit()
+    db_session.refresh(user)
+    assert user.profile_picture == first_picture
+    
+    # Replace with new picture
+    second_picture = "/static/uploads/profile_pictures/second.jpg"
+    user.profile_picture = second_picture
+    db_session.commit()
+    db_session.refresh(user)
+    assert user.profile_picture == second_picture, "Profile picture should be replaced"
+    assert user.profile_picture != first_picture, "Old profile picture path should be replaced"

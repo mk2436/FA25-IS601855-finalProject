@@ -485,6 +485,359 @@ def test_password_update_unauthorized(base_url: str):
     update_response = requests.put(password_update_url, json=password_update_payload, headers=invalid_headers)
     assert update_response.status_code == 401, "Should return 401 with invalid token"
 
+# ---------------------------------------------------------------------------
+# Profile Picture Update Tests
+# ---------------------------------------------------------------------------
+def test_upload_profile_picture_successful(base_url: str):
+    """Test successful profile picture upload"""
+    import io
+    from PIL import Image
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Create a simple test image
+    img = Image.new('RGB', (100, 100), color='red')
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+    
+    # Upload profile picture
+    upload_url = f"{base_url}/users/profile-picture"
+    files = {"file": ("test_image.png", img_bytes, "image/png")}
+    
+    upload_response = requests.post(upload_url, files=files, headers=headers)
+    assert upload_response.status_code == 200, f"Profile picture upload failed: {upload_response.text}"
+    
+    user_data_response = upload_response.json()
+    assert "profile_picture" in user_data_response, "Response should contain profile_picture"
+    assert user_data_response["profile_picture"] is not None, "Profile picture path should be set"
+    assert user_data_response["profile_picture"].startswith("/static/uploads/profile_pictures/"), \
+        "Profile picture path should be in correct location"
+    assert "user_" in user_data_response["profile_picture"], "Filename should contain user ID"
+    assert user_data_response["profile_picture"].endswith(".png"), "File extension should be preserved"
+    
+    # Verify user profile was updated
+    profile_url = f"{base_url}/users/me"
+    profile_response = requests.get(profile_url, headers=headers)
+    assert profile_response.status_code == 200
+    profile_data = profile_response.json()
+    assert profile_data["profile_picture"] == user_data_response["profile_picture"], \
+        "Profile picture should be persisted"
+
+def test_upload_profile_picture_invalid_file_type(base_url: str):
+    """Test profile picture upload fails with invalid file type"""
+    import io
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic2{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Try to upload a text file (invalid)
+    upload_url = f"{base_url}/users/profile-picture"
+    files = {"file": ("test.txt", io.BytesIO(b"Not an image"), "text/plain")}
+    
+    upload_response = requests.post(upload_url, files=files, headers=headers)
+    assert upload_response.status_code == 400, "Should return 400 for invalid file type"
+    
+    error_data = upload_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+    assert "invalid" in error_data["detail"].lower() or "file type" in error_data["detail"].lower(), \
+        "Error should mention invalid file type"
+
+def test_upload_profile_picture_file_too_large(base_url: str):
+    """Test profile picture upload fails with file exceeding size limit"""
+    import io
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic3{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Create a file larger than 5MB
+    large_file_content = b"x" * (6 * 1024 * 1024)  # 6MB
+    upload_url = f"{base_url}/users/profile-picture"
+    files = {"file": ("large_image.png", io.BytesIO(large_file_content), "image/png")}
+    
+    upload_response = requests.post(upload_url, files=files, headers=headers)
+    assert upload_response.status_code == 400, "Should return 400 for file too large"
+    
+    error_data = upload_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+    assert "5mb" in error_data["detail"].lower() or "size" in error_data["detail"].lower(), \
+        "Error should mention file size limit"
+
+def test_upload_profile_picture_no_filename(base_url: str):
+    """Test profile picture upload fails without filename"""
+    import io
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic4{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    upload_url = f"{base_url}/users/profile-picture"
+    # Upload without filename
+    files = {"file": (None, io.BytesIO(b"image data"), "image/png")}
+    
+    upload_response = requests.post(upload_url, files=files, headers=headers)
+    assert upload_response.status_code == 422, "Should return 422 for missing filename"
+
+    
+    error_data = upload_response.json()
+    assert "detail" in error_data, "Error response should contain detail"
+
+def test_upload_profile_picture_replace_existing(base_url: str):
+    """Test replacing an existing profile picture"""
+    import io
+    from PIL import Image
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic5{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Upload first image
+    upload_url = f"{base_url}/users/profile-picture"
+    img1 = Image.new('RGB', (100, 100), color='red')
+    img1_bytes = io.BytesIO()
+    img1.save(img1_bytes, format='PNG')
+    img1_bytes.seek(0)
+    
+    files1 = {"file": ("image1.png", img1_bytes, "image/png")}
+    upload_response1 = requests.post(upload_url, files=files1, headers=headers)
+    assert upload_response1.status_code == 200
+    first_profile_pic = upload_response1.json()["profile_picture"]
+    
+    # Upload second image (replacement)
+    img2 = Image.new('RGB', (100, 100), color='blue')
+    img2_bytes = io.BytesIO()
+    img2.save(img2_bytes, format='JPEG')
+    img2_bytes.seek(0)
+    
+    files2 = {"file": ("image2.jpg", img2_bytes, "image/jpeg")}
+    upload_response2 = requests.post(upload_url, files=files2, headers=headers)
+    assert upload_response2.status_code == 200
+    second_profile_pic = upload_response2.json()["profile_picture"]
+    
+    # Verify the profile picture path changed (and extension changed from PNG to JPG)
+    assert second_profile_pic != first_profile_pic, "Profile picture path should have changed"
+    assert second_profile_pic.endswith(".jpg"), "New file should have .jpg extension"
+    
+    # Verify current profile shows the new picture
+    profile_url = f"{base_url}/users/me"
+    profile_response = requests.get(profile_url, headers=headers)
+    assert profile_response.status_code == 200
+    profile_data = profile_response.json()
+    assert profile_data["profile_picture"] == second_profile_pic, \
+        "Profile should reflect the new profile picture"
+
+def test_delete_profile_picture_successful(base_url: str):
+    """Test successful profile picture deletion"""
+    import io
+    from PIL import Image
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic6{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # First upload a profile picture
+    upload_url = f"{base_url}/users/profile-picture"
+    img = Image.new('RGB', (100, 100), color='green')
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+    
+    files = {"file": ("test.png", img_bytes, "image/png")}
+    upload_response = requests.post(upload_url, files=files, headers=headers)
+    assert upload_response.status_code == 200
+    assert upload_response.json()["profile_picture"] is not None
+    
+    # Delete the profile picture
+    delete_url = f"{base_url}/users/profile-picture"
+    delete_response = requests.delete(delete_url, headers=headers)
+    assert delete_response.status_code == 200, f"Profile picture deletion failed: {delete_response.text}"
+    
+    user_data_response = delete_response.json()
+    assert user_data_response["profile_picture"] is None, "Profile picture should be None after deletion"
+    
+    # Verify profile picture is deleted
+    profile_url = f"{base_url}/users/me"
+    profile_response = requests.get(profile_url, headers=headers)
+    assert profile_response.status_code == 200
+    profile_data = profile_response.json()
+    assert profile_data["profile_picture"] is None, "Profile picture should remain deleted"
+
+def test_delete_profile_picture_when_none_exists(base_url: str):
+    """Test deleting profile picture when user has no profile picture"""
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic7{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # Try to delete when no profile picture exists
+    delete_url = f"{base_url}/users/profile-picture"
+    delete_response = requests.delete(delete_url, headers=headers)
+    # Should still succeed (idempotent operation)
+    assert delete_response.status_code == 200, "Delete should succeed even if no picture exists"
+    
+    user_data_response = delete_response.json()
+    assert user_data_response["profile_picture"] is None, "Profile picture should be None"
+
+def test_upload_profile_picture_unauthorized(base_url: str):
+    """Test profile picture upload fails without authentication"""
+    import io
+    from PIL import Image
+    
+    upload_url = f"{base_url}/users/profile-picture"
+    
+    # Create test image
+    img = Image.new('RGB', (100, 100), color='red')
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+    
+    files = {"file": ("test.png", img_bytes, "image/png")}
+    
+    # Try without authorization
+    upload_response = requests.post(upload_url, files=files)
+    assert upload_response.status_code == 401, "Should return 401 without authentication"
+    
+    # Try with invalid token
+    invalid_headers = {"Authorization": "Bearer invalid_token"}
+    img_bytes.seek(0)  # Reset file pointer
+    upload_response = requests.post(upload_url, files=files, headers=invalid_headers)
+    assert upload_response.status_code == 401, "Should return 401 with invalid token"
+
+def test_delete_profile_picture_unauthorized(base_url: str):
+    """Test profile picture deletion fails without authentication"""
+    delete_url = f"{base_url}/users/profile-picture"
+    
+    # Try without authorization
+    delete_response = requests.delete(delete_url)
+    assert delete_response.status_code == 401, "Should return 401 without authentication"
+    
+    # Try with invalid token
+    invalid_headers = {"Authorization": "Bearer invalid_token"}
+    delete_response = requests.delete(delete_url, headers=invalid_headers)
+    assert delete_response.status_code == 401, "Should return 401 with invalid token"
+
+def test_upload_profile_picture_supported_formats(base_url: str):
+    """Test uploading profile pictures in all supported formats"""
+    import io
+    from PIL import Image
+    
+    user_data = {
+        "first_name": "Profile",
+        "last_name": "Picture",
+        "email": f"profile.pic8{uuid4()}@example.com",
+        "username": f"pp_{uuid4().hex[:8]}",
+        "password": "SecurePass123!",
+        "confirm_password": "SecurePass123!"
+    }
+    
+    token_data = register_and_login(base_url, user_data)
+    access_token = token_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    upload_url = f"{base_url}/users/profile-picture"
+    
+    # Test supported formats: PNG, JPEG, GIF, WebP
+    formats_to_test = [
+        ("PNG", "png", "image/png"),
+        ("JPEG", "jpg", "image/jpeg"),
+        ("GIF", "gif", "image/gif"),
+        ("WEBP", "webp", "image/webp"),
+    ]
+    
+    for format_name, ext, mime_type in formats_to_test:
+        # Create image in the format
+        img = Image.new('RGB', (50, 50), color=(100, 150, 200))
+        img_bytes = io.BytesIO()
+        
+        if format_name == "WEBP":
+            img.save(img_bytes, format='WEBP')
+        elif format_name == "GIF":
+            img.save(img_bytes, format='GIF')
+        else:
+            img.save(img_bytes, format=format_name)
+            
+        img_bytes.seek(0)
+        
+        files = {"file": (f"test.{ext}", img_bytes, mime_type)}
+        upload_response = requests.post(upload_url, files=files, headers=headers)
+        
+        assert upload_response.status_code == 200, \
+            f"Failed to upload {format_name} format: {upload_response.text}"
+        
+        user_data_response = upload_response.json()
+        assert user_data_response["profile_picture"].endswith(f".{ext}"), \
+            f"Uploaded {format_name} file should have .{ext} extension"
+        
+        # Delete before next test to avoid conflicts
+        delete_url = f"{base_url}/users/profile-picture"
+        requests.delete(delete_url, headers=headers)
+
 def test_model_subtraction():
     dummy_user_id = uuid4()
     calc = Calculation.create("subtraction", dummy_user_id, [10, 3, 2])
